@@ -1,4 +1,5 @@
 ﻿import 'package:flutter/material.dart';
+import '../../services/food_vision_service.dart';
 import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../providers/app_state.dart';
@@ -48,8 +49,11 @@ class SettingsScreen extends StatelessWidget {
             const SizedBox(height: 16),
             const Text('Features', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
-            _tile(context, Icons.camera_alt, 'Snap & Track', 'Take photo \u2192 AI detects calories',
+            _tile(context, Icons.camera_alt, 'Snap & Track', 'Take photo → AI detects calories',
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SnapTrackScreen()))),
+            _tile(context, Icons.key, 'Gemini API Key',
+              FoodVisionService.hasApiKey ? 'Key set ✓ — tap to change' : 'Not set — tap to configure',
+              () => _showApiKeyDialog(context)),
             _tile(context, Icons.auto_awesome, 'AI Food Search', 'Search millions of foods online',
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CameraFoodScreen()))),
             _tile(context, Icons.science, 'Micro-Nutrients', 'Track vitamins & minerals',
@@ -92,6 +96,32 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+    void _showApiKeyDialog(BuildContext context) {
+    final ctrl = TextEditingController();
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Gemini API Key'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Text('Get a free key from aistudio.google.com', style: TextStyle(fontSize: 13)),
+        const SizedBox(height: 12),
+        TextField(controller: ctrl, obscureText: true,
+          decoration: const InputDecoration(hintText: 'Paste API key', border: OutlineInputBorder())),
+      ]),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        FilledButton(onPressed: () async {
+          if (ctrl.text.length > 10) {
+            await FoodVisionService.setApiKey(ctrl.text.trim());
+            if (ctx.mounted) Navigator.pop(ctx);
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('API key updated!')));
+              (context as Element).markNeedsBuild();
+            }
+          }
+        }, child: const Text('Save')),
+      ],
+    ));
+  }
+
   Widget _tile(BuildContext ctx, IconData icon, String title, String sub, VoidCallback? onTap) {
     return Card(
       margin: const EdgeInsets.only(bottom: 4),
@@ -105,4 +135,6 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 }
+
+
 
