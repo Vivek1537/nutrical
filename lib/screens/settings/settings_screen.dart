@@ -1,4 +1,5 @@
 ﻿import 'package:flutter/material.dart';
+import '../../services/food_vision_service.dart';
 import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../providers/app_state.dart';
@@ -52,6 +53,9 @@ class SettingsScreen extends StatelessWidget {
               const SizedBox(height: 8),
               _tile(context, Icons.camera_alt, 'Snap & Track', 'Take photo → AI detects calories',
                 () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SnapTrackScreen()))),
+              _tile(context, Icons.key, 'HuggingFace Token',
+                FoodVisionService.hasApiKey ? 'Token set ✓ — tap to change' : 'Not set — tap to configure',
+                () => _showTokenDialog(context)),
               _tile(context, Icons.auto_awesome, 'AI Food Search', 'Search millions of foods online',
                 () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CameraFoodScreen()))),
               _tile(context, Icons.science, 'Micro-Nutrients', 'Track vitamins & minerals',
@@ -111,6 +115,28 @@ class SettingsScreen extends StatelessWidget {
     ));
   }
 
+    void _showTokenDialog(BuildContext context) {
+    final ctrl = TextEditingController();
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('HuggingFace Token'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Text('Get your free token from\nhuggingface.co/settings/tokens', style: TextStyle(fontSize: 13)),
+        const SizedBox(height: 12),
+        TextField(controller: ctrl, obscureText: true,
+          decoration: const InputDecoration(hintText: 'hf_...', border: OutlineInputBorder())),
+      ]),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        FilledButton(onPressed: () async {
+          if (ctrl.text.length > 5) {
+            await FoodVisionService.setApiKey(ctrl.text.trim());
+            if (ctx.mounted) Navigator.pop(ctx);
+          }
+        }, child: const Text('Save')),
+      ],
+    ));
+  }
+
   Widget _tile(BuildContext ctx, IconData icon, String title, String sub, VoidCallback? onTap) {
     return Card(
       margin: const EdgeInsets.only(bottom: 4),
@@ -124,4 +150,5 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 }
+
 

@@ -70,17 +70,36 @@ class _SnapTrackScreenState extends State<SnapTrackScreen> {
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Token check
+          if (!FoodVisionService.hasApiKey) ...[
+            Card(color: Colors.orange[50], child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Row(children: [
+                  Icon(Icons.key, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('HuggingFace Token Required', style: TextStyle(fontWeight: FontWeight.bold))),
+                ]),
+                const SizedBox(height: 8),
+                const Text('1. Go to huggingface.co/settings/tokens\n2. Copy your token\n3. Paste below', style: TextStyle(fontSize: 13)),
+                const SizedBox(height: 12),
+                _TokenInput(onSet: () => setState(() {})),
+              ]),
+            )),
+            const SizedBox(height: 16),
+          ],
+
           // Camera buttons
           Row(children: [
             Expanded(child: ElevatedButton.icon(
-              onPressed: () => _pickImage(ImageSource.camera),
+              onPressed: FoodVisionService.hasApiKey ? () => _pickImage(ImageSource.camera) : null,
               icon: const Icon(Icons.camera_alt),
               label: const Text('Take Photo'),
               style: ElevatedButton.styleFrom(padding: const EdgeInsets.all(16)),
             )),
             const SizedBox(width: 12),
             Expanded(child: OutlinedButton.icon(
-              onPressed: () => _pickImage(ImageSource.gallery),
+              onPressed: FoodVisionService.hasApiKey ? () => _pickImage(ImageSource.gallery) : null,
               icon: const Icon(Icons.photo_library),
               label: const Text('Gallery'),
               style: OutlinedButton.styleFrom(padding: const EdgeInsets.all(16)),
@@ -188,4 +207,36 @@ class _SnapTrackScreenState extends State<SnapTrackScreen> {
     Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color)),
     Text(label, style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
   ]);
+
+}
+
+class _TokenInput extends StatefulWidget {
+  final VoidCallback onSet;
+  const _TokenInput({required this.onSet});
+  @override
+  State<_TokenInput> createState() => _TokenInputState();
+}
+
+class _TokenInputState extends State<_TokenInput> {
+  final _ctrl = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(children: [
+      Expanded(child: TextField(controller: _ctrl, obscureText: true,
+        decoration: const InputDecoration(hintText: 'hf_...', isDense: true,
+          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)))),
+      const SizedBox(width: 8),
+      ElevatedButton(onPressed: () async {
+        if (_ctrl.text.length > 5) {
+          await FoodVisionService.setApiKey(_ctrl.text.trim());
+          widget.onSet();
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Token saved!')));
+        }
+      }, child: const Text('Set')),
+    ]);
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
 }
