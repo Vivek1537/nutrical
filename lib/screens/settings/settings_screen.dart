@@ -9,6 +9,7 @@ import '../auth/login_screen.dart';
 import '../social/challenges_screen.dart';
 import '../insights/micro_nutrients_screen.dart';
 import '../diary/camera_food_screen.dart';
+import '../diary/snap_track_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -47,6 +48,8 @@ class SettingsScreen extends StatelessWidget {
             const SizedBox(height: 16),
             const Text('Features', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
+            _tile(context, Icons.camera_alt, 'Snap & Track', 'Take photo \u2192 AI detects calories',
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SnapTrackScreen()))),
             _tile(context, Icons.auto_awesome, 'AI Food Search', 'Search millions of foods online',
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CameraFoodScreen()))),
             _tile(context, Icons.science, 'Micro-Nutrients', 'Track vitamins & minerals',
@@ -102,3 +105,4 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 }
+
