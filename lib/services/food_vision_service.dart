@@ -1,160 +1,181 @@
 ﻿import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:http/http.dart' as http;
 import '../models/food_item.dart';
+import 'food_database.dart';
 
 class FoodVisionService {
-  static const _apiKey = ''; // User sets this in Settings
+  // Public HF Inference API — no key needed for public models
+  static const _hfUrl = 'https://api-inference.huggingface.co/models/nateraw/food';
+  static const _offUrl = 'https://world.openfoodfacts.org/cgi/search.pl';
 
-  static String _currentKey = _apiKey;
+  static bool get hasApiKey => true; // No key needed
 
-    static Future<void> setApiKey(String key) async {
-    _currentKey = key;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('gemini_api_key', key);
-  }
-    static bool get hasApiKey => _currentKey.isNotEmpty;
+  static Future<void> loadApiKey() async {} // No-op
+  static Future<void> setApiKey(String key) async {} // No-op
 
-  static Future<void> loadApiKey() async {
-    final prefs = await SharedPreferences.getInstance();
-    _currentKey = prefs.getString('gemini_api_key') ?? '';
-  }
-
-  /// Analyze a food image and return detected foods with nutrition
+  /// Analyze food image → returns detected foods with nutrition
   static Future<List<FoodItem>> analyzeImage(File imageFile) async {
-    if (!hasApiKey) throw Exception('Gemini API key not set. Go to Settings > AI Food Recognition to add your free key.');
-
-    final model = GenerativeModel(
-      model: 'gemini-2.0-flash',
-      apiKey: _currentKey,
-    );
-
-    final imageBytes = await imageFile.readAsBytes();
-    final mimeType = imageFile.path.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
-
-    final prompt = '''Analyze this food image. Identify ALL food items visible.
-For each item, estimate the nutrition per typical serving.
-
-Return ONLY a JSON array (no markdown, no explanation), where each object has:
-{
-  "name": "food name",
-  "serving_size": 100,
-  "serving_unit": "g",
-  "calories": 200,
-  "protein": 10,
-  "carbs": 25,
-  "fat": 8,
-  "confidence": 0.85
-}
-
-Rules:
-- Be specific (e.g. "Paneer Butter Masala" not just "curry")
-- Use Indian food names if applicable
-- Estimate realistic portions visible in the image
-- confidence is 0-1 (how sure you are)
-- If no food is detected, return empty array []''';
-
-    final content = Content.multi([
-      TextPart(prompt),
-      DataPart(mimeType, imageBytes),
-    ]);
-
-    final response = await model.generateContent([content]);
-    final text = response.text ?? '';
-
-    // Parse JSON from response
-    try {
-      // Strip markdown code fences if present
-      var jsonStr = text.trim();
-      if (jsonStr.startsWith('```')) {
-        jsonStr = jsonStr.replaceAll(RegExp(r'^```\w*\n?'), '').replaceAll(RegExp(r'\n?```$'), '');
-      }
-
-      final list = jsonDecode(jsonStr) as List;
-      return list.asMap().entries.map((entry) {
-        final j = entry.value;
-        return FoodItem(
-          id: 'ai_${DateTime.now().millisecondsSinceEpoch}_${entry.key}',
-          name: j['name'] ?? 'Unknown Food',
-          category: 'AI Detected',
-          servingSize: _d(j['serving_size'], 100),
-          servingUnit: j['serving_unit'] ?? 'g',
-          calories: _d(j['calories'], 0),
-          protein: _d(j['protein'], 0),
-          carbs: _d(j['carbs'], 0),
-          fat: _d(j['fat'], 0),
-        );
-      }).toList();
-    } catch (e) {
-      throw Exception('Could not parse food data from image. Try again with a clearer photo.');
-    }
+    final bytes = await imageFile.readAsBytes();
+    return analyzeImageBytes(bytes);
   }
 
-  /// Analyze image from bytes (for web/camera)
+  /// Analyze from bytes
   static Future<List<FoodItem>> analyzeImageBytes(Uint8List bytes, {String mimeType = 'image/jpeg'}) async {
-    if (!hasApiKey) throw Exception('Gemini API key not set.');
-
-    final model = GenerativeModel(
-      model: 'gemini-2.0-flash',
-      apiKey: _currentKey,
-    );
-
-    final prompt = '''Analyze this food image. Identify ALL food items visible.
-For each item, estimate the nutrition per typical serving.
-
-Return ONLY a JSON array (no markdown, no explanation), where each object has:
-{
-  "name": "food name",
-  "serving_size": 100,
-  "serving_unit": "g",
-  "calories": 200,
-  "protein": 10,
-  "carbs": 25,
-  "fat": 8,
-  "confidence": 0.85
-}
-
-Be specific with Indian food names if applicable. If no food detected, return [].''';
-
-    final content = Content.multi([
-      TextPart(prompt),
-      DataPart(mimeType, bytes),
-    ]);
-
-    final response = await model.generateContent([content]);
-    final text = response.text ?? '';
-
-    try {
-      var jsonStr = text.trim();
-      if (jsonStr.startsWith('```')) {
-        jsonStr = jsonStr.replaceAll(RegExp(r'^```\w*\n?'), '').replaceAll(RegExp(r'\n?```$'), '');
-      }
-      final list = jsonDecode(jsonStr) as List;
-      return list.asMap().entries.map((entry) {
-        final j = entry.value;
-        return FoodItem(
-          id: 'ai_${DateTime.now().millisecondsSinceEpoch}_${entry.key}',
-          name: j['name'] ?? 'Unknown Food',
-          category: 'AI Detected',
-          servingSize: _d(j['serving_size'], 100),
-          servingUnit: j['serving_unit'] ?? 'g',
-          calories: _d(j['calories'], 0),
-          protein: _d(j['protein'], 0),
-          carbs: _d(j['carbs'], 0),
-          fat: _d(j['fat'], 0),
-        );
-      }).toList();
-    } catch (e) {
-      throw Exception('Could not parse food data. Try a clearer photo.');
+    // Step 1: Classify food using HF model
+    final classifications = await _classifyFood(bytes);
+    if (classifications.isEmpty) {
+      throw Exception('No food detected in this image. Try a clearer photo.');
     }
+
+    // Step 2: For top results, look up nutrition
+    final results = <FoodItem>[];
+    for (final entry in classifications.take(5)) {
+      final name = entry['label'] as String;
+      final confidence = (entry['score'] as num).toDouble();
+      if (confidence < 0.05) continue; // Skip very low confidence
+
+      // Try local DB first
+      final localMatch = _searchLocalDb(name);
+      if (localMatch != null) {
+        results.add(FoodItem(
+          id: 'ai_${DateTime.now().millisecondsSinceEpoch}_${results.length}',
+          name: _formatName(name),
+          category: 'AI Detected (${(confidence * 100).round()}%)',
+          servingSize: localMatch.servingSize,
+          servingUnit: localMatch.servingUnit,
+          calories: localMatch.calories,
+          protein: localMatch.protein,
+          carbs: localMatch.carbs,
+          fat: localMatch.fat,
+        ));
+        continue;
+      }
+
+      // Fallback: Open Food Facts search
+      final offMatch = await _searchOpenFoodFacts(name);
+      if (offMatch != null) {
+        results.add(FoodItem(
+          id: 'ai_${DateTime.now().millisecondsSinceEpoch}_${results.length}',
+          name: _formatName(name),
+          category: 'AI Detected (${(confidence * 100).round()}%)',
+          servingSize: offMatch['serving'] ?? 100,
+          servingUnit: 'g',
+          calories: offMatch['calories'] ?? 0,
+          protein: offMatch['protein'] ?? 0,
+          carbs: offMatch['carbs'] ?? 0,
+          fat: offMatch['fat'] ?? 0,
+        ));
+        continue;
+      }
+
+      // Still add with name even without nutrition
+      results.add(FoodItem(
+        id: 'ai_${DateTime.now().millisecondsSinceEpoch}_${results.length}',
+        name: _formatName(name),
+        category: 'AI Detected (${(confidence * 100).round()}%)',
+        servingSize: 100,
+        servingUnit: 'g',
+        calories: 0, protein: 0, carbs: 0, fat: 0,
+      ));
+    }
+
+    if (results.isEmpty) {
+      throw Exception('Could not identify any food. Try another photo.');
+    }
+    return results;
   }
 
-  static double _d(dynamic v, double fallback) {
-    if (v == null) return fallback;
+  /// Call HF Inference API
+  static Future<List<Map<String, dynamic>>> _classifyFood(Uint8List bytes) async {
+    final response = await http.post(
+      Uri.parse(_hfUrl),
+      headers: {'Content-Type': 'application/octet-stream'},
+      body: bytes,
+    ).timeout(const Duration(seconds: 30));
+
+    if (response.statusCode == 503) {
+      // Model loading — retry once after delay
+      final body = jsonDecode(response.body);
+      final wait = (body['estimated_time'] ?? 20).toDouble();
+      await Future.delayed(Duration(seconds: wait.ceil().clamp(5, 30)));
+      final retry = await http.post(
+        Uri.parse(_hfUrl),
+        headers: {'Content-Type': 'application/octet-stream'},
+        body: bytes,
+      ).timeout(const Duration(seconds: 60));
+      if (retry.statusCode != 200) throw Exception('AI model is loading. Please try again in a minute.');
+      return List<Map<String, dynamic>>.from(jsonDecode(retry.body));
+    }
+
+    if (response.statusCode != 200) {
+      throw Exception('Food recognition failed (${response.statusCode}). Try again.');
+    }
+
+    return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+  }
+
+  /// Search local food database
+  static FoodItem? _searchLocalDb(String name) {
+    final query = name.toLowerCase().replaceAll('_', ' ');
+    final db = FoodDatabase.search('');
+    // Exact-ish match
+    for (final item in db) {
+      if (item.name.toLowerCase().contains(query) || query.contains(item.name.toLowerCase())) {
+        return item;
+      }
+    }
+    // Word match
+    final words = query.split(' ').where((w) => w.length > 3).toList();
+    for (final item in db) {
+      final itemLower = item.name.toLowerCase();
+      for (final word in words) {
+        if (itemLower.contains(word)) return item;
+      }
+    }
+    return null;
+  }
+
+  /// Search Open Food Facts for nutrition data
+  static Future<Map<String, double>?> _searchOpenFoodFacts(String query) async {
+    try {
+      final url = '$_offUrl?search_terms=${Uri.encodeComponent(query)}&json=1&page_size=3';
+      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return null;
+
+      final data = jsonDecode(response.body);
+      final products = data['products'] as List?;
+      if (products == null || products.isEmpty) return null;
+
+      // Find first product with nutrition data
+      for (final p in products) {
+        final n = p['nutriments'];
+        if (n == null) continue;
+        final cal = _d(n['energy-kcal_100g']);
+        if (cal <= 0) continue;
+        return {
+          'serving': 100.0,
+          'calories': cal,
+          'protein': _d(n['proteins_100g']),
+          'carbs': _d(n['carbohydrates_100g']),
+          'fat': _d(n['fat_100g']),
+        };
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static String _formatName(String name) {
+    return name.replaceAll('_', ' ').split(' ').map((w) =>
+      w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}'
+    ).join(' ');
+  }
+
+  static double _d(dynamic v) {
+    if (v == null) return 0;
     if (v is num) return v.toDouble();
-    return double.tryParse(v.toString()) ?? fallback;
+    return double.tryParse(v.toString()) ?? 0;
   }
 }
 
