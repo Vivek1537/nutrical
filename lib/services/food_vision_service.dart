@@ -7,7 +7,7 @@ import '../models/food_item.dart';
 
 class FoodVisionService {
   static const _apiUrl = 'https://router.huggingface.co/hyperbolic/v1/chat/completions';
-  static const _model = 'Qwen/Qwen2.5-VL-7B-Instruct';
+  static const _model = 'Qwen/Qwen2.5-VL-72B-Instruct';
   static const _prefsKey = 'hf_api_token';
 
   static String _token = '';
@@ -114,3 +114,4 @@ Use Indian food names where applicable.'''
     return double.tryParse(v.toString()) ?? fallback;
   }
 }
+
