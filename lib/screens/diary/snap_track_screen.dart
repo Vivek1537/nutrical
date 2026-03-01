@@ -226,9 +226,9 @@ class _ApiKeyInputState extends State<_ApiKeyInput> {
         decoration: const InputDecoration(hintText: 'Paste Gemini API key', isDense: true,
           contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)))),
       const SizedBox(width: 8),
-      ElevatedButton(onPressed: () {
+      ElevatedButton(onPressed: () async {
         if (_ctrl.text.length > 10) {
-          FoodVisionService.setApiKey(_ctrl.text.trim());
+          await FoodVisionService.setApiKey(_ctrl.text.trim());
           widget.onSet();
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('API key set!')));
         }
@@ -239,4 +239,5 @@ class _ApiKeyInputState extends State<_ApiKeyInput> {
   @override
   void dispose() { _ctrl.dispose(); super.dispose(); }
 }
+
 

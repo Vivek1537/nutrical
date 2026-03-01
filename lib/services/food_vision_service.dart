@@ -1,6 +1,7 @@
 ﻿import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import '../models/food_item.dart';
 
@@ -9,8 +10,17 @@ class FoodVisionService {
 
   static String _currentKey = _apiKey;
 
-  static void setApiKey(String key) => _currentKey = key;
-  static bool get hasApiKey => _currentKey.isNotEmpty;
+    static Future<void> setApiKey(String key) async {
+    _currentKey = key;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('gemini_api_key', key);
+  }
+    static bool get hasApiKey => _currentKey.isNotEmpty;
+
+  static Future<void> loadApiKey() async {
+    final prefs = await SharedPreferences.getInstance();
+    _currentKey = prefs.getString('gemini_api_key') ?? '';
+  }
 
   /// Analyze a food image and return detected foods with nutrition
   static Future<List<FoodItem>> analyzeImage(File imageFile) async {
@@ -147,3 +157,4 @@ Be specific with Indian food names if applicable. If no food detected, return []
     return double.tryParse(v.toString()) ?? fallback;
   }
 }
+
